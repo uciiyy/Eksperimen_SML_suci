@@ -1,0 +1,71 @@
+name: MLflow CI Training
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'MLProject/**'
+      - '!MLProject/mlruns/**'
+  workflow_dispatch:
+    inputs:
+      n_estimators:
+        description: 'Jumlah estimator (pohon)'
+        required: false
+        default: '100'
+      max_depth:
+        description: 'Kedalaman maksimum pohon'
+        required: false
+        default: '5'
+      min_samples_split:
+        description: 'Min samples untuk split'
+        required: false
+        default: '2'
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Setup ──────────────────────────────────────────
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install MLflow & Dependencies
+        run: |
+          pip install mlflow pandas numpy scikit-learn seaborn matplotlib
+
+      # ── Training ────────────────────────────────────────
+      - name: Run MLflow Project
+        working-directory: MLProject
+        run: |
+          mlflow run . \
+            -P n_estimators=${{ github.event.inputs.n_estimators || '100' }} \
+            -P max_depth=${{ github.event.inputs.max_depth || '5' }} \
+            -P min_samples_split=${{ github.event.inputs.min_samples_split || '2' }} \
+            --env-manager=local
+
+      # ── Simpan artefak ke repo ──────────────────────────
+      - name: Upload MLflow Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: mlflow-artifacts-${{ github.run_number }}
+          path: |
+            MLProject/mlruns/
+            MLProject/confusion_matrix.png
+            MLProject/feature_importance.png
+            MLProject/classification_report.txt
+          retention-days: 30
+
+      - name: Commit MLruns to Repository
+        working-directory: MLProject
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add mlruns/ confusion_matrix.png feature_importance.png classification_report.txt || true
+          git diff --cached --quiet || git commit -m "ci: save mlflow artifacts run #${{ github.run_number }} [skip ci]"
+          git push
