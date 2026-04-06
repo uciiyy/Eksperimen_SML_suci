@@ -89,63 +89,64 @@ def main():
 
     mlflow.set_experiment("Titanic_CI_Pipeline")
 
-    with mlflow.start_run():
+    # ❌ JANGAN pakai start_run()
+    start = time.time()
 
-        start = time.time()
+    model = RandomForestClassifier(
+        n_estimators     = args.n_estimators,
+        max_depth        = args.max_depth,
+        min_samples_split= args.min_samples_split,
+        random_state     = 42,
+    )
+    model.fit(X_train, y_train)
+    elapsed = time.time() - start
 
-        model = RandomForestClassifier(
-            n_estimators     = args.n_estimators,
-            max_depth        = args.max_depth,
-            min_samples_split= args.min_samples_split,
-            random_state     = 42,
-        )
-        model.fit(X_train, y_train)
-        elapsed = time.time() - start
+    y_pred  = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
 
-        y_pred  = model.predict(X_test)
-        y_proba = model.predict_proba(X_test)[:, 1]
+    acc       = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred)
+    recall    = recall_score(y_test, y_pred)
+    f1        = f1_score(y_test, y_pred)
+    roc_auc   = roc_auc_score(y_test, y_proba)
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring="accuracy")
 
-        acc       = accuracy_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred)
-        recall    = recall_score(y_test, y_pred)
-        f1        = f1_score(y_test, y_pred)
-        roc_auc   = roc_auc_score(y_test, y_proba)
-        cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring="accuracy")
+    # Log params
+    mlflow.log_param("n_estimators", args.n_estimators)
+    mlflow.log_param("max_depth", args.max_depth)
+    mlflow.log_param("min_samples_split", args.min_samples_split)
 
-        # Log params
-        mlflow.log_param("n_estimators"    , args.n_estimators)
-        mlflow.log_param("max_depth"       , args.max_depth)
-        mlflow.log_param("min_samples_split", args.min_samples_split)
+    # Log metrics
+    mlflow.log_metric("accuracy", acc)
+    mlflow.log_metric("precision", precision)
+    mlflow.log_metric("recall", recall)
+    mlflow.log_metric("f1_score", f1)
+    mlflow.log_metric("roc_auc", roc_auc)
+    mlflow.log_metric("cv_mean_accuracy", cv_scores.mean())
+    mlflow.log_metric("cv_std_accuracy", cv_scores.std())
+    mlflow.log_metric("training_time_seconds", elapsed)
 
-        # Log metrics
-        mlflow.log_metric("accuracy"            , acc)
-        mlflow.log_metric("precision"           , precision)
-        mlflow.log_metric("recall"              , recall)
-        mlflow.log_metric("f1_score"            , f1)
-        mlflow.log_metric("roc_auc"             , roc_auc)
-        mlflow.log_metric("cv_mean_accuracy"    , cv_scores.mean())
-        mlflow.log_metric("cv_std_accuracy"     , cv_scores.std())
-        mlflow.log_metric("training_time_seconds", elapsed)
+    # Log model
+    mlflow.sklearn.log_model(model, artifact_path="model")
 
-        # Log model
-        mlflow.sklearn.log_model(model, artifact_path="model")
+    # Artefak
+    cm_path = plot_confusion_matrix(y_test, y_pred)
+    fi_path = plot_feature_importance(model, list(X_train.columns))
+    mlflow.log_artifact(cm_path, "plots")
+    mlflow.log_artifact(fi_path, "plots")
 
-        # Log artefak
-        cm_path = plot_confusion_matrix(y_test, y_pred)
-        fi_path = plot_feature_importance(model, list(X_train.columns))
-        mlflow.log_artifact(cm_path, "plots")
-        mlflow.log_artifact(fi_path, "plots")
+    report = classification_report(
+        y_test, y_pred,
+        target_names=["Tidak Selamat", "Selamat"]
+    )
+    with open("classification_report.txt", "w") as f:
+        f.write(report)
+    mlflow.log_artifact("classification_report.txt")
 
-        report = classification_report(y_test, y_pred,
-                                        target_names=["Tidak Selamat", "Selamat"])
-        with open("classification_report.txt", "w") as f:
-            f.write(report)
-        mlflow.log_artifact("classification_report.txt")
-
-        print(f"Accuracy : {acc:.4f}")
-        print(f"F1-Score : {f1:.4f}")
-        print(f"ROC-AUC  : {roc_auc:.4f}")
-        print(f"Run ID   : {mlflow.active_run().info.run_id}")
+    print(f"Accuracy : {acc:.4f}")
+    print(f"F1-Score : {f1:.4f}")
+    print(f"ROC-AUC  : {roc_auc:.4f}")
+    print(f"Run ID   : {mlflow.active_run().info.run_id}")
 
 
 if __name__ == "__main__":
