@@ -24,11 +24,14 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      # ── Setup ──────────────────────────────────────────
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Up Python
         uses: actions/setup-python@v5
@@ -39,8 +42,6 @@ jobs:
         run: |
           pip install mlflow pandas numpy scikit-learn matplotlib
 
-      # ── Training ────────────────────────────────────────
-      # ✅ GANTI dengan ini
       - name: Run MLflow Project
         working-directory: MLProject
         run: |
@@ -50,7 +51,6 @@ jobs:
             --min_samples_split ${{ github.event.inputs.min_samples_split || '2' }} \
             --test_size 0.2
 
-      # ── Upload Artifact (WAJIB untuk penilaian) ─────────
       - name: Upload MLflow Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -62,12 +62,11 @@ jobs:
             MLProject/classification_report.txt
           retention-days: 30
 
-      # ── Commit hasil ke repo (optional tapi bagus) ──────
       - name: Commit MLflow Results
         working-directory: MLProject
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add mlruns/ confusion_matrix.png feature_importance.png classification_report.txt || true
+          git add confusion_matrix.png feature_importance.png classification_report.txt || true
           git diff --cached --quiet || git commit -m "ci: save mlflow artifacts run #${{ github.run_number }} [skip ci]"
-          git push
+          git push origin main
