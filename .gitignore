@@ -1,0 +1,15 @@
+# MLflow
+mlflow.db
+MLProject/mlflow.db
+mlruns/
+MLProject/mlruns/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/

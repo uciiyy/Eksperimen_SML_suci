@@ -87,10 +87,13 @@ def main():
 
     X_train, X_test, y_train, y_test = load_data()
 
-    # ✅ set_experiment() tetap ada, tapi harus matching dengan --experiment-name di CI
+    # ✅ TAMBAHAN: paksa tracking URI ke folder lokal
+    mlflow.set_tracking_uri("./mlruns")
+
+    # ✅ set experiment sebelum start_run
     mlflow.set_experiment("Titanic_CI_Pipeline")
 
-    with mlflow.start_run():  # ✅ WAJIB ada ini agar tidak konflik dengan mlflow run
+    with mlflow.start_run():
         start = time.time()
 
         model = RandomForestClassifier(
@@ -113,19 +116,19 @@ def main():
         cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring="accuracy")
 
         # Log params
-        mlflow.log_param("n_estimators"     , args.n_estimators)
-        mlflow.log_param("max_depth"        , args.max_depth)
-        mlflow.log_param("min_samples_split", args.min_samples_split)
-        mlflow.log_param("test_size"        , args.test_size)
+        mlflow.log_param("n_estimators"      , args.n_estimators)
+        mlflow.log_param("max_depth"         , args.max_depth)
+        mlflow.log_param("min_samples_split" , args.min_samples_split)
+        mlflow.log_param("test_size"         , args.test_size)
 
         # Log metrics
-        mlflow.log_metric("accuracy"            , acc)
-        mlflow.log_metric("precision"           , precision)
-        mlflow.log_metric("recall"              , recall)
-        mlflow.log_metric("f1_score"            , f1)
-        mlflow.log_metric("roc_auc"             , roc_auc)
-        mlflow.log_metric("cv_mean_accuracy"    , cv_scores.mean())
-        mlflow.log_metric("cv_std_accuracy"     , cv_scores.std())
+        mlflow.log_metric("accuracy"             , acc)
+        mlflow.log_metric("precision"            , precision)
+        mlflow.log_metric("recall"               , recall)
+        mlflow.log_metric("f1_score"             , f1)
+        mlflow.log_metric("roc_auc"              , roc_auc)
+        mlflow.log_metric("cv_mean_accuracy"     , cv_scores.mean())
+        mlflow.log_metric("cv_std_accuracy"      , cv_scores.std())
         mlflow.log_metric("training_time_seconds", elapsed)
 
         # Log model
