@@ -17,7 +17,6 @@ Contoh request:
 
 import os
 import time
-import json
 import logging
 import mlflow.sklearn
 import pandas as pd
@@ -62,7 +61,7 @@ PREDICTION_DISTRIBUTION = Counter(
     ["predicted_class"]
 )
 
-# 4. Prediksi per menit (rate)
+# 4. Prediksi yang sedang diproses
 PREDICTIONS_IN_FLIGHT = Gauge(
     "predictions_in_flight",
     "Jumlah prediksi yang sedang diproses saat ini"
@@ -75,35 +74,32 @@ PREDICTION_ERRORS = Counter(
     ["error_type"]
 )
 
+
 # ─────────────────────────────────────────────
 # LOAD MODEL
 # ─────────────────────────────────────────────
-MODEL_URI = os.getenv("MODEL_URI", "models:/titanic_model/latest")
-
 def load_model():
     """
-    Load model dari MLflow.
-    Coba dari model registry dulu, kalau gagal fallback ke mlruns lokal.
+    Load model dari mlruns lokal secara otomatis.
     """
-    # Coba load dari mlruns lokal (path relatif)
-    local_path = os.path.join(
-        "MLProject", "mlruns", "0"
-    )
-    if os.path.exists(local_path):
-        # Ambil run terbaru
-        runs = sorted(
-            [d for d in os.listdir(local_path) if os.path.isdir(os.path.join(local_path, d))],
+    models_path = os.path.join("mlruns", "1", "models")
+
+    if os.path.exists(models_path):
+        # Ambil semua folder model
+        model_folders = sorted(
+            [d for d in os.listdir(models_path)
+             if os.path.isdir(os.path.join(models_path, d))],
             reverse=True
         )
-        if runs:
-            model_path = os.path.join(local_path, runs[0], "artifacts", "model")
-            if os.path.exists(model_path):
-                logger.info(f"Loading model dari: {model_path}")
-                return mlflow.sklearn.load_model(model_path)
+        for folder in model_folders:
+            artifacts_path = os.path.join(models_path, folder, "artifacts")
+            if os.path.exists(os.path.join(artifacts_path, "MLmodel")):
+                logger.info(f"Model ditemukan di: {artifacts_path}")
+                return mlflow.sklearn.load_model(artifacts_path)
 
-    # Fallback: load dari MODEL_URI env
-    logger.info(f"Loading model dari URI: {MODEL_URI}")
-    return mlflow.sklearn.load_model(MODEL_URI)
+    raise Exception(
+        "Model tidak ditemukan! Pastikan mlruns/1/models/ ada."
+    )
 
 
 # ─────────────────────────────────────────────
@@ -160,7 +156,6 @@ def predict():
         # Prediksi
         prediction = int(model.predict(input_df)[0])
         probability = float(model.predict_proba(input_df)[0][prediction])
-
         label = "Selamat" if prediction == 1 else "Tidak Selamat"
 
         # Update metrics
@@ -172,10 +167,10 @@ def predict():
         logger.info(f"Prediksi: {label} (prob={probability:.4f}, latency={latency:.4f}s)")
 
         return jsonify({
-            "prediction"  : prediction,
-            "label"       : label,
-            "probability" : round(probability, 4),
-            "latency_ms"  : round(latency * 1000, 2),
+            "prediction" : prediction,
+            "label"      : label,
+            "probability": round(probability, 4),
+            "latency_ms" : round(latency * 1000, 2),
         })
 
     except Exception as e:
