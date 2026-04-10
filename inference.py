@@ -81,25 +81,36 @@ PREDICTION_ERRORS = Counter(
 def load_model():
     """
     Load model dari mlruns lokal secara otomatis.
+    Mencari di semua experiment ID secara otomatis.
     """
-    models_path = os.path.join("mlruns", "1", "models")
+    mlruns_path = "mlruns"
 
-    if os.path.exists(models_path):
-        # Ambil semua folder model
-        model_folders = sorted(
-            [d for d in os.listdir(models_path)
-             if os.path.isdir(os.path.join(models_path, d))],
-            reverse=True
-        )
-        for folder in model_folders:
-            artifacts_path = os.path.join(models_path, folder, "artifacts")
-            if os.path.exists(os.path.join(artifacts_path, "MLmodel")):
-                logger.info(f"Model ditemukan di: {artifacts_path}")
-                return mlflow.sklearn.load_model(artifacts_path)
+    if not os.path.exists(mlruns_path):
+        raise Exception("Folder mlruns tidak ditemukan!")
 
-    raise Exception(
-        "Model tidak ditemukan! Pastikan mlruns/1/models/ ada."
-    )
+    # Loop semua experiment ID
+    for exp_id in sorted(os.listdir(mlruns_path), reverse=True):
+        exp_path = os.path.join(mlruns_path, exp_id)
+        if not os.path.isdir(exp_path):
+            continue
+
+        # Cek folder models dulu
+        models_path = os.path.join(exp_path, "models")
+        if os.path.exists(models_path):
+            for folder in sorted(os.listdir(models_path), reverse=True):
+                artifacts_path = os.path.join(models_path, folder, "artifacts")
+                if os.path.exists(os.path.join(artifacts_path, "MLmodel")):
+                    logger.info(f"Model ditemukan di: {artifacts_path}")
+                    return mlflow.sklearn.load_model(artifacts_path)
+
+        # Cek folder run langsung
+        for run_id in sorted(os.listdir(exp_path), reverse=True):
+            model_path = os.path.join(exp_path, run_id, "artifacts", "model")
+            if os.path.exists(os.path.join(model_path, "MLmodel")):
+                logger.info(f"Model ditemukan di: {model_path}")
+                return mlflow.sklearn.load_model(model_path)
+
+    raise Exception("Model tidak ditemukan di mlruns!")
 
 
 # ─────────────────────────────────────────────

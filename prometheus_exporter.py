@@ -1,8 +1,8 @@
 """
 prometheus_exporter.py
 ======================
-Custom Prometheus Exporter tambahan untuk monitoring sistem ML.
-Menjalankan server metrics pada port 8000 yang discrap oleh Prometheus.
+Real Prometheus Exporter — mengambil metrik langsung dari inference server.
+Bukan simulasi, data diambil real-time dari /metrics endpoint.
 
 Cara pakai:
     python prometheus_exporter.py
@@ -14,118 +14,148 @@ Kemudian tambahkan ke prometheus.yml:
 """
 
 import time
-import random
-import threading
-from prometheus_client import (
-    start_http_server,
-    Counter, Gauge, Histogram, Summary,
+import requests
+from prometheus_client import start_http_server, Gauge
+
+# ─────────────────────────────────────────────
+# DEFINISI METRICS REAL
+# ─────────────────────────────────────────────
+
+# 1. Status model (1=up, 0=down)
+MODEL_UP = Gauge(
+    "ml_model_up",
+    "Status inference server (1=up, 0=down)"
 )
+
+# 2. Total request sukses
+TOTAL_SUCCESS = Gauge(
+    "ml_total_requests_success",
+    "Total request prediksi yang sukses (status 200)"
+)
+
+# 3. Total request error
+TOTAL_ERROR = Gauge(
+    "ml_total_requests_error",
+    "Total request prediksi yang error (status 500)"
+)
+
+# 4. Total prediksi kelas Selamat
+PRED_SELAMAT = Gauge(
+    "ml_prediction_selamat_total",
+    "Total prediksi kelas Selamat"
+)
+
+# 5. Total prediksi kelas Tidak Selamat
+PRED_TIDAK_SELAMAT = Gauge(
+    "ml_prediction_tidak_selamat_total",
+    "Total prediksi kelas Tidak Selamat"
+)
+
+# 6. Jumlah prediksi sedang diproses
+IN_FLIGHT = Gauge(
+    "ml_predictions_in_flight_current",
+    "Jumlah prediksi yang sedang diproses saat ini"
+)
+
+# 7. Total error missing features
+ERROR_MISSING_FEATURES = Gauge(
+    "ml_error_missing_features_total",
+    "Total error karena fitur kurang"
+)
+
+INFERENCE_URL = "http://localhost:5001"
 
 
 # ─────────────────────────────────────────────
-# DEFINISI METRICS (Minimal 5 untuk Skilled)
+# PARSE METRIK DARI INFERENCE SERVER
 # ─────────────────────────────────────────────
-
-# 1. Akurasi model saat ini (disimulasi, di produksi ambil dari evaluasi)
-MODEL_ACCURACY = Gauge(
-    "ml_model_accuracy",
-    "Akurasi model pada dataset evaluasi terkini"
-)
-
-# 2. Total prediksi kumulatif
-TOTAL_PREDICTIONS = Counter(
-    "ml_total_predictions",
-    "Total prediksi yang pernah dilakukan sejak server nyala"
-)
-
-# 3. Distribusi confidence score
-CONFIDENCE_SCORE = Histogram(
-    "ml_prediction_confidence",
-    "Distribusi confidence score prediksi",
-    buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-)
-
-# 4. Penggunaan memori (MB) — simulasi
-MEMORY_USAGE_MB = Gauge(
-    "ml_memory_usage_mb",
-    "Perkiraan penggunaan memori model dalam MB"
-)
-
-# 5. Data drift score (simulasi)
-DATA_DRIFT_SCORE = Gauge(
-    "ml_data_drift_score",
-    "Skor data drift antara distribusi training dan produksi (0-1)"
-)
-
-# 6. Jumlah batch yang diproses
-BATCH_PROCESSED = Counter(
-    "ml_batch_processed_total",
-    "Total batch data yang sudah diproses"
-)
-
-# 7. Latensi preprocessing per request
-PREPROCESSING_LATENCY = Summary(
-    "ml_preprocessing_latency_seconds",
-    "Waktu preprocessing per request"
-)
+def parse_metric_value(metrics_text, metric_name, labels=None):
+    """Parse nilai metrik dari teks Prometheus format."""
+    for line in metrics_text.split('\n'):
+        if line.startswith('#'):
+            continue
+        if metric_name not in line:
+            continue
+        if labels:
+            if all(f'{k}="{v}"' in line for k, v in labels.items()):
+                try:
+                    return float(line.split()[-1])
+                except:
+                    pass
+        else:
+            if '{' not in line:
+                try:
+                    return float(line.split()[-1])
+                except:
+                    pass
+    return 0.0
 
 
 # ─────────────────────────────────────────────
-# SIMULASI UPDATE METRICS
+# COLLECT METRICS DARI INFERENCE SERVER
 # ─────────────────────────────────────────────
-def update_metrics():
-    """
-    Update metrics secara periodik (simulasi produksi).
-    Di production, ganti dengan data nyata dari sistem Anda.
-    """
-    base_accuracy = 0.82
-
+def collect_metrics():
     while True:
-        # Simulasi fluktuasi akurasi
-        accuracy = base_accuracy + random.uniform(-0.03, 0.03)
-        MODEL_ACCURACY.set(round(accuracy, 4))
+        try:
+            # Cek health inference server
+            health_resp = requests.get(f"{INFERENCE_URL}/health", timeout=3)
+            if health_resp.status_code == 200 and health_resp.json().get("status") == "ok":
+                MODEL_UP.set(1)
+            else:
+                MODEL_UP.set(0)
 
-        # Simulasi prediksi masuk
-        n_preds = random.randint(1, 10)
-        TOTAL_PREDICTIONS.inc(n_preds)
+            # Ambil semua metrics dari /metrics endpoint
+            metrics_resp = requests.get(f"{INFERENCE_URL}/metrics", timeout=3)
+            metrics_text = metrics_resp.text
 
-        # Simulasi confidence scores
-        for _ in range(n_preds):
-            conf = random.betavariate(8, 2)  # distribusi condong ke kanan
-            CONFIDENCE_SCORE.observe(conf)
+            # Parse setiap metrik
+            TOTAL_SUCCESS.set(parse_metric_value(
+                metrics_text, "prediction_requests_total",
+                {"method": "POST", "endpoint": "/predict", "status": "200"}
+            ))
 
-        # Simulasi memori (antara 80 - 120 MB)
-        MEMORY_USAGE_MB.set(random.uniform(80, 120))
+            TOTAL_ERROR.set(parse_metric_value(
+                metrics_text, "prediction_requests_total",
+                {"method": "POST", "endpoint": "/predict", "status": "500"}
+            ))
 
-        # Simulasi data drift (semakin lama semakin drift)
-        drift = random.uniform(0.01, 0.15)
-        DATA_DRIFT_SCORE.set(round(drift, 4))
+            PRED_SELAMAT.set(parse_metric_value(
+                metrics_text, "prediction_class_total",
+                {"predicted_class": "Selamat"}
+            ))
 
-        # Simulasi batch processing
-        BATCH_PROCESSED.inc(random.randint(0, 3))
+            PRED_TIDAK_SELAMAT.set(parse_metric_value(
+                metrics_text, "prediction_class_total",
+                {"predicted_class": "Tidak Selamat"}
+            ))
 
-        # Simulasi preprocessing latency
-        PREPROCESSING_LATENCY.observe(random.uniform(0.001, 0.05))
+            IN_FLIGHT.set(parse_metric_value(
+                metrics_text, "predictions_in_flight"
+            ))
 
-        time.sleep(5)
+            ERROR_MISSING_FEATURES.set(parse_metric_value(
+                metrics_text, "prediction_errors_total",
+                {"error_type": "missing_features"}
+            ))
+
+            print(f"[Exporter] Metrics updated successfully")
+
+        except requests.exceptions.ConnectionError:
+            MODEL_UP.set(0)
+            print(f"[Exporter] Inference server tidak bisa dijangkau!")
+        except Exception as e:
+            MODEL_UP.set(0)
+            print(f"[Exporter] Error: {e}")
+
+        time.sleep(10)
 
 
 # ─────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # Jalankan HTTP server untuk scraping Prometheus
     start_http_server(8000)
-    print("[Prometheus Exporter] Server berjalan di http://localhost:8000/metrics")
-    print("[Prometheus Exporter] Tekan Ctrl+C untuk berhenti")
-
-    # Mulai thread update metrics
-    t = threading.Thread(target=update_metrics, daemon=True)
-    t.start()
-
-    # Jaga proses tetap hidup
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[Prometheus Exporter] Berhenti.")
+    print("[Exporter] Server berjalan di http://localhost:8000/metrics")
+    print("[Exporter] Mengambil data real dari http://localhost:5001/metrics")
+    print("[Exporter] Tekan Ctrl+C untuk berhenti")
+    collect_metrics()
