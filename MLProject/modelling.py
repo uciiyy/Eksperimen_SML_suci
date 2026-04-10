@@ -87,13 +87,20 @@ def main():
 
     X_train, X_test, y_train, y_test = load_data()
 
-    # ✅ TAMBAHAN: paksa tracking URI ke folder lokal
     mlflow.set_tracking_uri("./mlruns")
 
-    # ✅ set experiment sebelum start_run
-    mlflow.set_experiment("Titanic_CI_Pipeline")
+    # ✅ Deteksi apakah dijalankan via mlflow run atau manual
+    active_run = mlflow.active_run()
 
-    with mlflow.start_run():
+    if active_run is None:
+        # Dijalankan manual: python modelling.py
+        mlflow.set_experiment("Titanic_CI_Pipeline")
+        run_context = mlflow.start_run()
+    else:
+        # Dijalankan via mlflow run — gunakan run yang sudah ada
+        run_context = active_run
+
+    with run_context:
         start = time.time()
 
         model = RandomForestClassifier(
@@ -115,13 +122,11 @@ def main():
         roc_auc   = roc_auc_score(y_test, y_proba)
         cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring="accuracy")
 
-        # Log params
         mlflow.log_param("n_estimators"      , args.n_estimators)
         mlflow.log_param("max_depth"         , args.max_depth)
         mlflow.log_param("min_samples_split" , args.min_samples_split)
         mlflow.log_param("test_size"         , args.test_size)
 
-        # Log metrics
         mlflow.log_metric("accuracy"             , acc)
         mlflow.log_metric("precision"            , precision)
         mlflow.log_metric("recall"               , recall)
@@ -131,10 +136,8 @@ def main():
         mlflow.log_metric("cv_std_accuracy"      , cv_scores.std())
         mlflow.log_metric("training_time_seconds", elapsed)
 
-        # Log model
         mlflow.sklearn.log_model(model, artifact_path="model")
 
-        # Plot & log artifacts
         cm_path = plot_confusion_matrix(y_test, y_pred)
         fi_path = plot_feature_importance(model, list(X_train.columns))
         mlflow.log_artifact(cm_path, "plots")
