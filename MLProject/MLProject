@@ -1,5 +1,7 @@
 name: titanic_mlproject
 
+conda_env: conda.yaml
+
 entry_points:
   main:
     parameters:
@@ -15,4 +17,9 @@ entry_points:
       test_size:
         type: float
         default: 0.2
-    command: "python modelling.py --n_estimators {n_estimators} --max_depth {max_depth} --min_samples_split {min_samples_split} --test_size {test_size}"
+    command: >
+      python modelling.py
+      --n_estimators {n_estimators}
+      --max_depth {max_depth}
+      --min_samples_split {min_samples_split}
+      --test_size {test_size}
